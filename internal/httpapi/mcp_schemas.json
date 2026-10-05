@@ -1,0 +1,521 @@
+[
+  {
+    "name": "artifact.write",
+    "description": "Save small UTF-8 text, prepare a streamed upload, or recover and commit an existing upload.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ArtifactWriteRequest",
+      "type": "object",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "write_id",
+            "source",
+            "mime",
+            "text"
+          ],
+          "properties": {
+            "mode": {
+              "const": "text"
+            },
+            "write_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "artifact_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "source": {
+              "allOf": [
+                {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "ArtifactSource",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "project_id"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "user_edit"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "project_id"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "user_import"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "service_id",
+                        "run_id"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "task_output"
+                        },
+                        "service_id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                        },
+                        "run_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "task_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "project_id",
+                        "original_ref"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "legacy_import"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "original_ref": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "service_id",
+                            "artifact_id",
+                            "version_id"
+                          ],
+                          "properties": {
+                            "service_id": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                            },
+                            "artifact_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "version_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "task_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "asset_id",
+                        "asset_version_id"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "asset_manifest"
+                        },
+                        "asset_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "asset_version_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "user_edit",
+                        "user_import"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "mime": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "text": {
+              "type": "string",
+              "maxLength": 1048576
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "write_id",
+            "source",
+            "mime",
+            "size",
+            "sha256"
+          ],
+          "properties": {
+            "mode": {
+              "const": "prepare"
+            },
+            "write_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "artifact_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "source": {
+              "allOf": [
+                {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "title": "ArtifactSource",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "project_id"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "user_edit"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "project_id"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "user_import"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "service_id",
+                        "run_id"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "task_output"
+                        },
+                        "service_id": {
+                          "type": "string",
+                          "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                        },
+                        "run_id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "task_id": {
+                          "type": "string",
+                          "format": "uuid"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "project_id",
+                        "original_ref"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "legacy_import"
+                        },
+                        "project_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "original_ref": {
+                          "type": "object",
+                          "additionalProperties": false,
+                          "required": [
+                            "service_id",
+                            "artifact_id",
+                            "version_id"
+                          ],
+                          "properties": {
+                            "service_id": {
+                              "type": "string",
+                              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+                            },
+                            "artifact_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "version_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            },
+                            "task_id": {
+                              "type": "string",
+                              "minLength": 1,
+                              "maxLength": 256
+                            }
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "kind",
+                        "asset_id",
+                        "asset_version_id"
+                      ],
+                      "properties": {
+                        "kind": {
+                          "const": "asset_manifest"
+                        },
+                        "asset_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        },
+                        "asset_version_id": {
+                          "type": "string",
+                          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+                        }
+                      }
+                    }
+                  ]
+                },
+                {
+                  "properties": {
+                    "kind": {
+                      "enum": [
+                        "user_edit",
+                        "user_import"
+                      ]
+                    }
+                  }
+                }
+              ]
+            },
+            "mime": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "size": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1125899906842624
+            },
+            "sha256": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "upload_id"
+          ],
+          "properties": {
+            "mode": {
+              "const": "commit"
+            },
+            "upload_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mode",
+            "upload_id"
+          ],
+          "properties": {
+            "mode": {
+              "const": "status"
+            },
+            "upload_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "artifact.read",
+    "description": "Read authorized immutable content metadata, small text, or a controlled download path.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ArtifactReadRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "content_ref"
+      ],
+      "properties": {
+        "mode": {
+          "enum": [
+            "metadata",
+            "text",
+            "download"
+          ]
+        },
+        "content_ref": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "ContentRef",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "store_id",
+            "artifact_id",
+            "version_id"
+          ],
+          "properties": {
+            "store_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "artifact_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "version_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        },
+        "access": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "ArtifactAccess",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [],
+          "properties": {
+            "project_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "project_revision_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "asset_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "asset_version_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          },
+          "oneOf": [
+            {
+              "maxProperties": 0
+            },
+            {
+              "required": [
+                "project_id",
+                "project_revision_id"
+              ],
+              "maxProperties": 2
+            },
+            {
+              "required": [
+                "asset_id",
+                "asset_version_id"
+              ],
+              "maxProperties": 2
+            }
+          ]
+        }
+      }
+    }
+  }
+]
