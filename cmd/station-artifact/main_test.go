@@ -103,3 +103,19 @@ func TestMigrateServeAndShutdown(t *testing.T) {
 		}
 	}
 }
+
+func TestNonLoopbackListen(t *testing.T) {
+	for _, tc := range []struct {
+		addr string
+		want bool
+	}{
+		{"127.0.0.1:8094", false},
+		{"[::1]:8094", false},
+		{"0.0.0.0:8094", true},
+		{":8094", true},
+	} {
+		if got := nonLoopbackListen(tc.addr); got != tc.want {
+			t.Errorf("nonLoopbackListen(%q) = %v, want %v", tc.addr, got, tc.want)
+		}
+	}
+}

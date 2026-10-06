@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -79,5 +80,19 @@ func TestRejectInsecureConfiguration(t *testing.T) {
 		if _, err := New(endpoint, strings.Repeat("x", 32)); err == nil {
 			t.Fatalf("accepted %s", endpoint)
 		}
+	}
+}
+
+func TestAuthorityCAFileMustBeReadableAndPEM(t *testing.T) {
+	token := strings.Repeat("x", 32)
+	if _, err := NewWithCA("http://127.0.0.1:8095/check", token, t.TempDir()+"/missing.pem"); err == nil {
+		t.Fatal("accepted missing authority CA file")
+	}
+	path := t.TempDir() + "/invalid.pem"
+	if err := os.WriteFile(path, []byte("not a certificate"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewWithCA("https://authority.internal/check", token, path); err == nil {
+		t.Fatal("accepted invalid authority CA bundle")
 	}
 }

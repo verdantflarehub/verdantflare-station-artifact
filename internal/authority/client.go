@@ -4,11 +4,14 @@ package authority
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -22,6 +25,14 @@ type Client struct {
 }
 
 func New(endpoint, token string) (*Client, error) {
+	return NewWithCA(endpoint, token, "")
+}
+
+// NewWithCA creates an authority client and optionally extends the system
+// trust store with a PEM encoded CA bundle. The CA file is only for the
+// outbound authority connection; credentials remain in the Authorization
+// header and are never read from the URL.
+func NewWithCA(endpoint, token, caFile string) (*Client, error) {
 	u, err := url.Parse(endpoint)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || len(token) < 32 || strings.ContainsAny(token, " \t\r\n") {
 		return nil, errors.New("invalid authority configuration")
@@ -32,6 +43,20 @@ func New(endpoint, token string) (*Client, error) {
 	}
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = nil
+	if caFile != "" {
+		pem, err := os.ReadFile(caFile)
+		if err != nil {
+			return nil, errors.New("authority CA file unavailable")
+		}
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil || !pool.AppendCertsFromPEM(pem) {
+			return nil, errors.New("invalid authority CA bundle")
+		}
+		if transport.TLSClientConfig == nil {
+			transport.TLSClientConfig = &tls.Config{}
+		}
+		transport.TLSClientConfig.RootCAs = pool
+	}
 	return &Client{endpoint, token, &http.Client{Timeout: 5 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}}, nil
 }
 

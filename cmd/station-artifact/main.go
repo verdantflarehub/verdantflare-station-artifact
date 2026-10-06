@@ -67,7 +67,7 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("invalid ARTIFACT_MAX_CONTENT_BYTES")
 		}
 	}
-	auth, err := authority.New(endpoint, authToken)
+	auth, err := authority.NewWithCA(endpoint, authToken, strings.TrimSpace(os.Getenv("ARTIFACT_AUTHORITY_CA_FILE")))
 	if err != nil {
 		return err
 	}
@@ -96,6 +96,13 @@ func run(ctx context.Context, args []string) error {
 	if addr == "" {
 		addr = "127.0.0.1:8094"
 	}
+	certFile, keyFile := strings.TrimSpace(os.Getenv("ARTIFACT_TLS_CERT_FILE")), strings.TrimSpace(os.Getenv("ARTIFACT_TLS_KEY_FILE"))
+	if (certFile == "") != (keyFile == "") {
+		return errors.New("ARTIFACT_TLS_CERT_FILE and ARTIFACT_TLS_KEY_FILE must be provided together")
+	}
+	if certFile == "" && nonLoopbackListen(addr) {
+		return errors.New("Artifact non-loopback listener requires TLS")
+	}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return errors.New("Artifact listener unavailable")
@@ -109,7 +116,11 @@ func run(ctx context.Context, args []string) error {
 	mux.Handle("/", handler)
 	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	done := make(chan error, 1)
-	go func() { done <- server.Serve(listener) }()
+	if certFile != "" {
+		go func() { done <- server.ServeTLS(listener, certFile, keyFile) }()
+	} else {
+		go func() { done <- server.Serve(listener) }()
+	}
 	defer server.Close()
 	if address := os.Getenv("ARTIFACT_MCP_ADVERTISE_URL"); address != "" {
 		u, e := url.Parse(address)
@@ -160,6 +171,15 @@ func run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
+}
+
+func nonLoopbackListen(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil || host == "" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip == nil || !ip.IsLoopback()
 }
 
 func newBackend(maxSize int64) (storage.Backend, error) {
