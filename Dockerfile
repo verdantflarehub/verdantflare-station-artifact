@@ -15,5 +15,5 @@ FROM gcr.io/distroless/static-debian12:nonroot
 
 COPY --from=build /out/station-artifact /station-artifact
 USER nonroot:nonroot
-EXPOSE 5055
+EXPOSE 8094
 ENTRYPOINT ["/station-artifact"]

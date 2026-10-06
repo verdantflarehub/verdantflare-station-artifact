@@ -23,6 +23,9 @@ listener; bucket creation is an explicit deployment step.
 Build the production Linux container with the repository `Dockerfile`; it
 produces a static `linux/amd64` binary and runs as the distroless non-root user.
 For a local binary, use `go build -o <output-path> ./cmd/station-artifact`.
+The release-only GitHub Actions workflow publishes `artifact-v0.1.0` to the
+configured `wod/verdantflare-station` registry repository. It refuses existing
+tags and reuses GHA build cache; run the local checks below before promotion.
 Configuration and
 internal HTTP contracts are maintained in the central design workspace:
 `docs/design/station/details/05-station-artifact-design.content-versions.md` and
