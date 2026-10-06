@@ -31,9 +31,10 @@ type Object struct {
 	Size   int64
 }
 
-// Reader is a verified content stream. Implementations must validate the
-// declared size and SHA-256 before returning EOF; callers must consume the
-// stream or close it when abandoning a read.
+// Reader is a content stream that validates the declared size and SHA-256 as
+// it reaches EOF. Call Verify when a caller must establish readiness before
+// publishing metadata; callers must consume the stream or close it when
+// abandoning a read.
 type Reader interface {
 	io.Reader
 	io.Closer
@@ -44,6 +45,7 @@ type Reader interface {
 type Backend interface {
 	Put(context.Context, Object, io.Reader) (reused bool, err error)
 	Open(context.Context, Object) (Reader, error)
+	Verify(context.Context, Object) error
 	Close() error
 }
 
@@ -186,6 +188,14 @@ func (l *Local) Open(ctx context.Context, o Object) (Reader, error) {
 	}
 	ok = true
 	return f, nil
+}
+
+func (l *Local) Verify(ctx context.Context, o Object) error {
+	f, err := l.Open(ctx, o)
+	if err != nil {
+		return err
+	}
+	return f.Close()
 }
 
 type contextReader struct {

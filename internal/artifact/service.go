@@ -201,14 +201,13 @@ func (s *Service) Commit(ctx context.Context, p Principal, id string) (Version, 
 	if err != nil {
 		return Version{}, err
 	}
-	file, err := s.blobs.Open(ctx, storage.Object{ID: u.ObjectID, SHA256: u.SHA256, Size: u.Size})
+	err = s.blobs.Verify(ctx, storage.Object{ID: u.ObjectID, SHA256: u.SHA256, Size: u.Size})
 	if errors.Is(err, os.ErrNotExist) || errors.Is(err, storage.ErrCorrupt) {
 		return Version{}, ErrNotReady
 	}
 	if err != nil {
 		return Version{}, err
 	}
-	file.Close()
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Version{}, err
@@ -423,14 +422,11 @@ func (s *Service) Retain(ctx context.Context, p Principal, r RetainRequest) (Ret
 		}
 		// Retention is the last content-readiness check before a business service
 		// publishes a revision. Metadata alone cannot prove the bytes survived.
-		file, err := s.blobs.Open(ctx, storage.Object{ID: v.ObjectID, SHA256: v.SHA256, Size: v.Size})
+		err = s.blobs.Verify(ctx, storage.Object{ID: v.ObjectID, SHA256: v.SHA256, Size: v.Size})
 		if errors.Is(err, storage.ErrCorrupt) {
 			return Retention{}, ErrNotReady
 		}
 		if err != nil {
-			return Retention{}, err
-		}
-		if err = file.Close(); err != nil {
 			return Retention{}, err
 		}
 	}

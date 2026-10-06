@@ -161,6 +161,19 @@ func (s *S3) Open(ctx context.Context, o Object) (Reader, error) {
 	return &verifiedObject{ctx: ctx, object: obj, expectedSize: o.Size, expectedSHA: o.SHA256}, nil
 }
 
+func (s *S3) Verify(ctx context.Context, o Object) error {
+	reader, err := s.Open(ctx, o)
+	if err != nil {
+		return err
+	}
+	_, readErr := io.Copy(io.Discard, reader)
+	closeErr := reader.Close()
+	if readErr != nil {
+		return readErr
+	}
+	return closeErr
+}
+
 type verifiedObject struct {
 	ctx          context.Context
 	object       *minio.Object
