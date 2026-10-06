@@ -20,7 +20,10 @@ in the central content-version design; credentials are injected as secrets. The
 `serve` command checks that the configured bucket exists before opening its HTTP
 listener; bucket creation is an explicit deployment step.
 
-Build with `go build -o <output-path> ./cmd/station-artifact`. Configuration and
+Build the production Linux container with the repository `Dockerfile`; it
+produces a static `linux/amd64` binary and runs as the distroless non-root user.
+For a local binary, use `go build -o <output-path> ./cmd/station-artifact`.
+Configuration and
 internal HTTP contracts are maintained in the central design workspace:
 `docs/design/station/details/05-station-artifact-design.content-versions.md` and
 `docs/design/station/details/05-station-artifact-design.mcp-transfer.md`.
