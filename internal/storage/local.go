@@ -31,6 +31,22 @@ type Object struct {
 	Size   int64
 }
 
+// Reader is a verified content stream. Implementations must validate the
+// declared size and SHA-256 before returning EOF; callers must consume the
+// stream or close it when abandoning a read.
+type Reader interface {
+	io.Reader
+	io.Closer
+}
+
+// Backend stores immutable content objects. Object IDs are service-generated
+// identities, never client paths or content-hash deduplication keys.
+type Backend interface {
+	Put(context.Context, Object, io.Reader) (reused bool, err error)
+	Open(context.Context, Object) (Reader, error)
+	Close() error
+}
+
 type Local struct {
 	root     *os.Root
 	maxBytes int64
@@ -125,7 +141,7 @@ func (l *Local) Put(ctx context.Context, o Object, input io.Reader) (reused bool
 
 // Open returns only a verified regular file positioned at the beginning. It
 // never trusts a caller's URL, absolute path or on-disk staging object.
-func (l *Local) Open(ctx context.Context, o Object) (*os.File, error) {
+func (l *Local) Open(ctx context.Context, o Object) (Reader, error) {
 	if !l.valid(o) {
 		return nil, ErrInvalid
 	}

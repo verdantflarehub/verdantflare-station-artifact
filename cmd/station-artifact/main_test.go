@@ -20,6 +20,7 @@ func TestMigrateServeAndShutdown(t *testing.T) {
 	store := uuid.Must(uuid.NewV7()).String()
 	t.Setenv("ARTIFACT_STORE_ID", store)
 	t.Setenv("ARTIFACT_CONTENT_ROOT", t.TempDir())
+	t.Setenv("ARTIFACT_STORAGE_BACKEND", "local")
 	token := strings.Repeat("s", 32)
 	t.Setenv("ARTIFACT_SERVICE_TOKEN", token)
 	t.Setenv("ARTIFACT_AUTHORITY_TOKEN", strings.Repeat("a", 32))

@@ -56,9 +56,9 @@ func run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	root, endpoint, token, authToken := os.Getenv("ARTIFACT_CONTENT_ROOT"), os.Getenv("ARTIFACT_AUTHORITY_URL"), os.Getenv("ARTIFACT_SERVICE_TOKEN"), os.Getenv("ARTIFACT_AUTHORITY_TOKEN")
-	if root == "" || token == authToken {
-		return errors.New("content root and distinct internal service/authority credentials are required")
+	endpoint, token, authToken := os.Getenv("ARTIFACT_AUTHORITY_URL"), os.Getenv("ARTIFACT_SERVICE_TOKEN"), os.Getenv("ARTIFACT_AUTHORITY_TOKEN")
+	if token == "" || authToken == "" || token == authToken {
+		return errors.New("distinct internal service/authority credentials are required")
 	}
 	maxSize := int64(1 << 30)
 	if raw := os.Getenv("ARTIFACT_MAX_CONTENT_BYTES"); raw != "" {
@@ -74,9 +74,9 @@ func run(ctx context.Context, args []string) error {
 	if err = migrations.Check(startup, db, store); err != nil {
 		return errors.New("Artifact migration/store check failed; run migrate explicitly with the correct identity")
 	}
-	blobs, err := storage.NewLocal(root, maxSize)
+	blobs, err := newBackend(maxSize)
 	if err != nil {
-		return errors.New("Artifact content root unavailable")
+		return err
 	}
 	defer blobs.Close()
 	service, err := artifact.New(startup, db, blobs, auth, store, maxSize)
@@ -154,5 +154,42 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("Artifact shutdown deadline exceeded")
 		}
 		return nil
+	}
+}
+
+func newBackend(maxSize int64) (storage.Backend, error) {
+	kind := strings.ToLower(strings.TrimSpace(os.Getenv("ARTIFACT_STORAGE_BACKEND")))
+	if kind == "" {
+		kind = "s3"
+	}
+	switch kind {
+	case "local":
+		root := strings.TrimSpace(os.Getenv("ARTIFACT_CONTENT_ROOT"))
+		if root == "" {
+			return nil, errors.New("ARTIFACT_CONTENT_ROOT is required for local Artifact storage")
+		}
+		backend, err := storage.NewLocal(root, maxSize)
+		if err != nil {
+			return nil, errors.New("Artifact content root unavailable")
+		}
+		return backend, nil
+	case "s3":
+		endpoint, bucket := os.Getenv("ARTIFACT_S3_ENDPOINT"), os.Getenv("ARTIFACT_S3_BUCKET")
+		access, secret := os.Getenv("ARTIFACT_S3_ACCESS_KEY"), os.Getenv("ARTIFACT_S3_SECRET_KEY")
+		secure := true
+		if raw := strings.TrimSpace(os.Getenv("ARTIFACT_S3_SECURE")); raw != "" {
+			parsed, err := strconv.ParseBool(raw)
+			if err != nil {
+				return nil, errors.New("invalid ARTIFACT_S3_SECURE")
+			}
+			secure = parsed
+		}
+		backend, err := storage.NewS3(endpoint, bucket, access, secret, os.Getenv("ARTIFACT_S3_REGION"), secure, maxSize)
+		if err != nil {
+			return nil, errors.New("invalid Artifact S3 configuration")
+		}
+		return backend, nil
+	default:
+		return nil, errors.New("ARTIFACT_STORAGE_BACKEND must be local or s3")
 	}
 }

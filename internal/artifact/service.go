@@ -16,13 +16,13 @@ import (
 
 type Service struct {
 	db      *pgxpool.Pool
-	blobs   *storage.Local
+	blobs   storage.Backend
 	auth    Authorizer
 	storeID string
 	maxSize int64
 }
 
-func New(ctx context.Context, db *pgxpool.Pool, blobs *storage.Local, auth Authorizer, storeID string, maxSize int64) (*Service, error) {
+func New(ctx context.Context, db *pgxpool.Pool, blobs storage.Backend, auth Authorizer, storeID string, maxSize int64) (*Service, error) {
 	if db == nil || blobs == nil || auth == nil || !ValidID(storeID) || maxSize <= 0 || maxSize > 1<<50 {
 		return nil, ErrInvalid
 	}
@@ -348,13 +348,13 @@ func (s *Service) Get(ctx context.Context, p Principal, ref ContentRef, access A
 	}
 	return v, tx.Commit(ctx)
 }
-func (s *Service) Open(ctx context.Context, p Principal, ref ContentRef, access Access) (Version, *os.File, error) {
+func (s *Service) Open(ctx context.Context, p Principal, ref ContentRef, access Access) (Version, storage.Reader, error) {
 	v, err := s.Get(ctx, p, ref, access)
 	if err != nil {
 		return Version{}, nil, err
 	}
 	f, err := s.blobs.Open(ctx, storage.Object{ID: v.ObjectID, SHA256: v.SHA256, Size: v.Size})
-	if errors.Is(err, os.ErrNotExist) || errors.Is(err, storage.ErrCorrupt) {
+	if errors.Is(err, storage.ErrCorrupt) {
 		return Version{}, nil, ErrNotReady
 	}
 	return v, f, err
@@ -414,7 +414,7 @@ func (s *Service) Retain(ctx context.Context, p Principal, r RetainRequest) (Ret
 		// Retention is the last content-readiness check before a business service
 		// publishes a revision. Metadata alone cannot prove the bytes survived.
 		file, err := s.blobs.Open(ctx, storage.Object{ID: v.ObjectID, SHA256: v.SHA256, Size: v.Size})
-		if errors.Is(err, os.ErrNotExist) || errors.Is(err, storage.ErrCorrupt) {
+		if errors.Is(err, storage.ErrCorrupt) {
 			return Retention{}, ErrNotReady
 		}
 		if err != nil {
