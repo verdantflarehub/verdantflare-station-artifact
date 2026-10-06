@@ -363,7 +363,7 @@ func (s *Service) Open(ctx context.Context, p Principal, ref ContentRef, access 
 		return Version{}, nil, err
 	}
 	f, err := s.blobs.Open(ctx, storage.Object{ID: v.ObjectID, SHA256: v.SHA256, Size: v.Size})
-	if errors.Is(err, storage.ErrCorrupt) {
+	if errors.Is(err, os.ErrNotExist) || errors.Is(err, storage.ErrCorrupt) {
 		return Version{}, nil, ErrNotReady
 	}
 	return v, f, err
@@ -423,7 +423,7 @@ func (s *Service) Retain(ctx context.Context, p Principal, r RetainRequest) (Ret
 		// Retention is the last content-readiness check before a business service
 		// publishes a revision. Metadata alone cannot prove the bytes survived.
 		err = s.blobs.Verify(ctx, storage.Object{ID: v.ObjectID, SHA256: v.SHA256, Size: v.Size})
-		if errors.Is(err, storage.ErrCorrupt) {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, storage.ErrCorrupt) {
 			return Retention{}, ErrNotReady
 		}
 		if err != nil {
