@@ -15,12 +15,13 @@ import (
 )
 
 var (
-	ErrInvalid  = errors.New("invalid content declaration")
-	ErrMismatch = errors.New("content size or digest mismatch")
-	ErrConflict = errors.New("immutable content already exists with different bytes")
-	ErrCorrupt  = errors.New("stored content failed integrity verification")
-	idPattern   = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	hashPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	ErrInvalid        = errors.New("invalid content declaration")
+	ErrMismatch       = errors.New("content size or digest mismatch")
+	ErrConflict       = errors.New("immutable content already exists with different bytes")
+	ErrCorrupt        = errors.New("stored content failed integrity verification")
+	ErrBucketNotFound = errors.New("configured S3 bucket does not exist")
+	idPattern         = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	hashPattern       = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 // Object ID is allocated and durably bound to a write operation before Put.
@@ -49,6 +50,15 @@ type Backend interface {
 	Close() error
 }
 
+// Readiness is implemented by backends that have an external dependency that
+// must be checked before Artifact exposes its write/read endpoints. A local
+// backend is ready after construction; S3 uses this hook to verify the
+// configured private bucket exists and is reachable. The check never creates a
+// bucket or changes remote state.
+type Readiness interface {
+	Ready(context.Context) error
+}
+
 type Local struct {
 	root     *os.Root
 	maxBytes int64
@@ -75,6 +85,13 @@ func NewLocal(directory string, maxBytes int64) (*Local, error) {
 }
 
 func (l *Local) Close() error { return l.root.Close() }
+
+func (l *Local) Ready(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return nil
+}
 
 func (l *Local) valid(o Object) bool {
 	return idPattern.MatchString(o.ID) && hashPattern.MatchString(o.SHA256) && o.Size >= 0 && o.Size <= l.maxBytes

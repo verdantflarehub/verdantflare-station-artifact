@@ -16,7 +16,9 @@ remain pending.
 Serving defaults to the S3 backend. Set `ARTIFACT_STORAGE_BACKEND=local` and
 `ARTIFACT_CONTENT_ROOT` only for local development, tests, or an explicitly
 offline deployment. S3 deployments require the `ARTIFACT_S3_*` settings described
-in the central content-version design; credentials are injected as secrets.
+in the central content-version design; credentials are injected as secrets. The
+`serve` command checks that the configured bucket exists before opening its HTTP
+listener; bucket creation is an explicit deployment step.
 
 Build with `go build -o <output-path> ./cmd/station-artifact`. Configuration and
 internal HTTP contracts are maintained in the central design workspace:

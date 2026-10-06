@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,6 +36,34 @@ func TestNewS3RequiresExplicitCredentialsAndEndpoint(t *testing.T) {
 	}
 	if _, err := NewS3("s3.example.test", "artifact", "access", "secret", "", true, 1<<20); err != nil {
 		t.Fatalf("valid S3 configuration rejected: %v", err)
+	}
+}
+
+func TestS3ReadyRequiresExistingBucket(t *testing.T) {
+	exists := true
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.TrimSuffix(r.URL.Path, "/") != "/artifact" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if !exists {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+	parsed, _ := url.Parse(server.URL)
+	backend, err := NewS3(parsed.Host, "artifact", "access", "secret", "us-east-1", false, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := backend.Ready(t.Context()); err != nil {
+		t.Fatalf("Ready existing bucket = %v", err)
+	}
+	exists = false
+	if err := backend.Ready(t.Context()); !errors.Is(err, ErrBucketNotFound) {
+		t.Fatalf("Ready missing bucket = %v, want ErrBucketNotFound", err)
 	}
 }
 

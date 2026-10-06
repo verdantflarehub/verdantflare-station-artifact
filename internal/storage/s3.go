@@ -49,6 +49,21 @@ func NewS3(endpoint, bucket, accessKey, secretKey, region string, secure bool, m
 
 func (s *S3) Close() error { return nil }
 
+// Ready verifies the configured bucket without creating it. Bucket creation
+// belongs to the deployment owner so an Artifact credential cannot silently
+// create or select a different bucket. Failing closed here makes a missing
+// bucket visible before the first project commit.
+func (s *S3) Ready(ctx context.Context) error {
+	exists, err := s.client.BucketExists(ctx, s.bucket)
+	if err != nil {
+		return fmt.Errorf("check S3 bucket: %w", err)
+	}
+	if !exists {
+		return ErrBucketNotFound
+	}
+	return nil
+}
+
 func (s *S3) valid(o Object) bool {
 	return idPattern.MatchString(o.ID) && hashPattern.MatchString(o.SHA256) && o.Size >= 0 && o.Size <= s.maxBytes
 }

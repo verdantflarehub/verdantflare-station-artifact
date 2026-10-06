@@ -79,6 +79,11 @@ func run(ctx context.Context, args []string) error {
 		return err
 	}
 	defer blobs.Close()
+	if ready, ok := blobs.(storage.Readiness); ok {
+		if err := ready.Ready(startup); err != nil {
+			return errors.New("Artifact storage readiness check failed")
+		}
+	}
 	service, err := artifact.New(startup, db, blobs, auth, store, maxSize)
 	if err != nil {
 		return errors.New("Artifact service initialization failed")
