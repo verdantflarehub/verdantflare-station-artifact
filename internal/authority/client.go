@@ -49,7 +49,10 @@ func NewWithCA(endpoint, token, caFile string) (*Client, error) {
 			return nil, errors.New("authority CA file unavailable")
 		}
 		pool, err := x509.SystemCertPool()
-		if err != nil || pool == nil || !pool.AppendCertsFromPEM(pem) {
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		if !pool.AppendCertsFromPEM(pem) {
 			return nil, errors.New("invalid authority CA bundle")
 		}
 		if transport.TLSClientConfig == nil {
