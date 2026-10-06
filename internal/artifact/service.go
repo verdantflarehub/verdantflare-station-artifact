@@ -173,6 +173,16 @@ func (s *Service) Put(ctx context.Context, p Principal, id string, r io.Reader) 
 	if err != nil {
 		return Upload{}, err
 	}
+	// The advisory lock spans the backend existence check and immutable put so
+	// two Artifact replicas cannot race to overwrite the same object key.
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return Upload{}, err
+	}
+	defer rollback(tx)
+	if err = lockKey(ctx, tx, "object:"+u.ObjectID); err != nil {
+		return Upload{}, err
+	}
 	_, err = s.blobs.Put(ctx, storage.Object{ID: u.ObjectID, SHA256: u.SHA256, Size: u.Size}, r)
 	if errors.Is(err, storage.ErrMismatch) || errors.Is(err, storage.ErrInvalid) {
 		return Upload{}, ErrInvalid
@@ -183,7 +193,7 @@ func (s *Service) Put(ctx context.Context, p Principal, id string, r io.Reader) 
 	if err != nil {
 		return Upload{}, err
 	}
-	return u, nil
+	return u, tx.Commit(ctx)
 }
 
 func (s *Service) Commit(ctx context.Context, p Principal, id string) (Version, error) {

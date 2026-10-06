@@ -11,6 +11,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -20,6 +21,7 @@ import (
 // object ID is the only physical key component. PostgreSQL remains the source
 // of version, retention and authorization truth.
 type S3 struct {
+	mu       sync.Mutex
 	client   *minio.Client
 	bucket   string
 	prefix   string
@@ -60,26 +62,17 @@ func s3NotFound(err error) bool {
 
 // Put stages and verifies bytes before uploading. A per-process object key is
 // never overwritten: an existing object is reused only when its declared
-// size and digest match. Cross-process deployment must additionally enforce
-// immutable object keys at the S3 policy/versioning layer.
+// size and digest match. Artifact holds a database advisory lock around this
+// operation so replicas sharing its database serialize the existence check.
 func (s *S3) Put(ctx context.Context, o Object, input io.Reader) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if !s.valid(o) || input == nil {
 		return false, ErrInvalid
 	}
 	if err := ctx.Err(); err != nil {
 		return false, err
 	}
-	stat, err := s.client.StatObject(ctx, s.bucket, s.key(o), minio.StatObjectOptions{})
-	if err == nil {
-		if stat.Size != o.Size || strings.ToLower(stat.Metadata.Get("X-Amz-Meta-Sha256")) != o.SHA256 {
-			return false, ErrConflict
-		}
-		return true, nil
-	}
-	if !s3NotFound(err) {
-		return false, err
-	}
-
 	tmp, err := os.CreateTemp("", "station-artifact-s3-")
 	if err != nil {
 		return false, err
@@ -108,9 +101,25 @@ func (s *S3) Put(ctx context.Context, o Object, input io.Reader) (bool, error) {
 		tmp.Close()
 		return false, err
 	}
+	stat, err := s.client.StatObject(ctx, s.bucket, s.key(o), minio.StatObjectOptions{})
+	if err == nil {
+		closeErr := tmp.Close()
+		if closeErr != nil {
+			return false, closeErr
+		}
+		if stat.Size != o.Size || strings.ToLower(stat.Metadata.Get("X-Amz-Meta-Sha256")) != o.SHA256 {
+			return false, ErrConflict
+		}
+		return true, nil
+	}
+	if !s3NotFound(err) {
+		tmp.Close()
+		return false, err
+	}
 	_, err = s.client.PutObject(ctx, s.bucket, s.key(o), tmp, o.Size, minio.PutObjectOptions{
-		ContentType:  "application/octet-stream",
-		UserMetadata: map[string]string{"sha256": o.SHA256},
+		ContentType:          "application/octet-stream",
+		DisableContentSha256: true,
+		UserMetadata:         map[string]string{"sha256": o.SHA256},
 	})
 	closeErr := tmp.Close()
 	if err != nil {
