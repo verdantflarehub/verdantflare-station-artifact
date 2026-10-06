@@ -9,8 +9,9 @@ transactions, retention, protected HTTP transport, a fail-closed business
 authorization client, and the `station-artifact migrate|serve` entry point.
 Artifact read/write tools register through etcd and integrate with the Studio
 Gateway, Project/World authorization and controlled content transfer. These paths
-have local service validation; S3 storage, native producer adapters and production
-deployment remain pending.
+have local service validation, including the selectable MinIO/S3 backend; native
+producer adapters, target-cluster deployment and production persistence recovery
+remain pending.
 
 Serving defaults to the S3 backend. Set `ARTIFACT_STORAGE_BACKEND=local` and
 `ARTIFACT_CONTENT_ROOT` only for local development, tests, or an explicitly
