@@ -52,7 +52,7 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 		mcprpc.Reject(w, r, empty, 400, -32700, "Invalid JSON-RPC request")
 		return
 	}
-	if mcprpc.Common(w, request, "station-artifact", "0.1.0") {
+	if mcprpc.Common(w, request, "station-artifact", "0.1.1") {
 		return
 	}
 	switch request.Method {

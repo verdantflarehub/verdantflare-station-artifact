@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net"
@@ -16,7 +17,6 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/verdantflarehub/verdantflare-station-artifact/internal/artifact"
-	"github.com/verdantflarehub/verdantflare-station-artifact/internal/authority"
 	"github.com/verdantflarehub/verdantflare-station-artifact/internal/httpapi"
 	"github.com/verdantflarehub/verdantflare-station-artifact/internal/registry"
 	"github.com/verdantflarehub/verdantflare-station-artifact/internal/storage"
@@ -56,10 +56,7 @@ func run(ctx context.Context, args []string) error {
 		}
 		return nil
 	}
-	endpoint, token, authToken := os.Getenv("ARTIFACT_AUTHORITY_URL"), os.Getenv("ARTIFACT_SERVICE_TOKEN"), os.Getenv("ARTIFACT_AUTHORITY_TOKEN")
-	if token == "" || authToken == "" || token == authToken {
-		return errors.New("distinct internal service/authority credentials are required")
-	}
+	token := os.Getenv("ARTIFACT_SERVICE_TOKEN")
 	maxSize := int64(1 << 30)
 	if raw := os.Getenv("ARTIFACT_MAX_CONTENT_BYTES"); raw != "" {
 		maxSize, err = strconv.ParseInt(raw, 10, 64)
@@ -67,7 +64,7 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("invalid ARTIFACT_MAX_CONTENT_BYTES")
 		}
 	}
-	auth, err := authority.NewWithCA(endpoint, authToken, strings.TrimSpace(os.Getenv("ARTIFACT_AUTHORITY_CA_FILE")))
+	auth, err := configuredAuthority(os.Getenv)
 	if err != nil {
 		return err
 	}
@@ -103,25 +100,53 @@ func run(ctx context.Context, args []string) error {
 	if certFile == "" && nonLoopbackListen(addr) {
 		return errors.New("Artifact non-loopback listener requires TLS")
 	}
+	mcpAddr := os.Getenv("ARTIFACT_MCP_LISTEN_ADDR")
+	mode := os.Getenv("ARTIFACT_AUTHORITY_MODE")
+	if err = artifactListenerConfig(addr, mcpAddr, os.Getenv("ARTIFACT_MCP_ADVERTISE_URL"), os.Getenv("ETCD_ENDPOINTS"), mode, certFile != ""); err != nil {
+		return err
+	}
+	var tlsConfig *tls.Config
+	if certFile != "" {
+		pair, loadErr := tls.LoadX509KeyPair(certFile, keyFile)
+		if loadErr != nil {
+			return errors.New("invalid Artifact listener TLS configuration")
+		}
+		tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12, Certificates: []tls.Certificate{pair}}
+	}
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		return errors.New("Artifact listener unavailable")
 	}
 	defer listener.Close()
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	var mcpListener net.Listener
+	if mcpAddr != "" {
+		mcpListener, err = net.Listen("tcp", mcpAddr)
+		if err != nil {
+			return errors.New("Artifact MCP listener unavailable")
+		}
+		defer mcpListener.Close()
+	}
+	health := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","service":"station-artifact"}`))
 	})
-	mux.Handle("/", handler)
-	server := &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
-	done := make(chan error, 1)
-	if certFile != "" {
-		go func() { done <- server.ServeTLS(listener, certFile, keyFile) }()
-	} else {
-		go func() { done <- server.Serve(listener) }()
+	server := &http.Server{Handler: artifactListenerHandler(handler, health, false, mode == "split" || mcpAddr != ""), TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	done := make(chan error, 2)
+	serve := func(server *http.Server, listener net.Listener) {
+		if certFile != "" {
+			done <- server.ServeTLS(listener, "", "")
+		} else {
+			done <- server.Serve(listener)
+		}
 	}
+	go serve(server, listener)
 	defer server.Close()
+	var mcpServer *http.Server
+	if mcpListener != nil {
+		mcpServer = &http.Server{Handler: artifactListenerHandler(handler, health, true, false), TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 3 * time.Minute, WriteTimeout: 3 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+		go serve(mcpServer, mcpListener)
+		defer mcpServer.Close()
+	}
 	if address := os.Getenv("ARTIFACT_MCP_ADVERTISE_URL"); address != "" {
 		u, e := url.Parse(address)
 		if e != nil || u.Path != "/mcp" {
@@ -144,7 +169,7 @@ func run(ctx context.Context, args []string) error {
 		u.Path = "/health"
 		version := os.Getenv("ARTIFACT_SERVICE_VERSION")
 		if version == "" {
-			version = "0.1.0"
+			version = "0.1.1"
 		}
 		reg := registry.ServiceRegistration{Domain: "artifact", Endpoint: address, HealthEndpoint: u.String(), Version: version, Tools: []registry.ToolDefinition{}}
 		for _, tool := range httpapi.MCPTools() {
@@ -165,6 +190,11 @@ func run(ctx context.Context, args []string) error {
 	case <-ctx.Done():
 		shutdown, finish := context.WithTimeout(context.Background(), 15*time.Second)
 		defer finish()
+		if mcpServer != nil {
+			if err := mcpServer.Shutdown(shutdown); err != nil {
+				return errors.New("Artifact MCP shutdown deadline exceeded")
+			}
+		}
 		if err := server.Shutdown(shutdown); err != nil {
 			_ = server.Close()
 			return errors.New("Artifact shutdown deadline exceeded")
