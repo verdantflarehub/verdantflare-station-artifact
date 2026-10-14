@@ -11,6 +11,27 @@ import (
 // Legacy is an explicit transition mode preserving the deployed combined
 // service. Split mode cannot silently reuse that service or its credentials.
 func configuredAuthority(env func(string) string) (artifact.Authorizer, error) {
+	base, err := configuredBusinessAuthority(env)
+	if err != nil {
+		return nil, err
+	}
+	url, token, ca := env("ARTIFACT_VIDEO_AUTHORITY_URL"), env("ARTIFACT_VIDEO_AUTHORITY_TOKEN"), env("ARTIFACT_VIDEO_AUTHORITY_CA_FILE")
+	if url == "" && token == "" && ca == "" {
+		return base, nil
+	}
+	for _, key := range []string{"ARTIFACT_SERVICE_TOKEN", "ARTIFACT_AUTHORITY_TOKEN", "ARTIFACT_PROJECT_AUTHORITY_TOKEN", "ARTIFACT_WORLD_AUTHORITY_TOKEN"} {
+		if token == env(key) {
+			return nil, errors.New("distinct Video producer authority credential required")
+		}
+	}
+	video, err := authority.NewWithCA(url, token, strings.TrimSpace(ca))
+	if err != nil {
+		return nil, err
+	}
+	return authority.WithVideo(base, video)
+}
+
+func configuredBusinessAuthority(env func(string) string) (artifact.Authorizer, error) {
 	serviceToken := env("ARTIFACT_SERVICE_TOKEN")
 	if len(serviceToken) < 32 || strings.ContainsAny(serviceToken, " \t\r\n") {
 		return nil, errors.New("valid internal Artifact credential required")

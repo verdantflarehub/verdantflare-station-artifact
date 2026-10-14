@@ -57,3 +57,30 @@ func TestAuthorityConfigurationSplitFailsClosed(t *testing.T) {
 		})
 	}
 }
+
+func TestVideoProducerConfigurationIsOptionalAndIsolated(t *testing.T) {
+	for _, kind := range []string{"valid", "missing_token", "shared_token", "insecure_url"} {
+		t.Run(kind, func(t *testing.T) {
+			env := authorityEnvironment()
+			env["ARTIFACT_AUTHORITY_MODE"] = "split"
+			env["ARTIFACT_VIDEO_AUTHORITY_URL"] = "https://video.example/internal/artifacts/authorize"
+			env["ARTIFACT_VIDEO_AUTHORITY_TOKEN"] = strings.Repeat("v", 32)
+			switch kind {
+			case "missing_token":
+				delete(env, "ARTIFACT_VIDEO_AUTHORITY_TOKEN")
+			case "shared_token":
+				env["ARTIFACT_VIDEO_AUTHORITY_TOKEN"] = env["ARTIFACT_SERVICE_TOKEN"]
+			case "insecure_url":
+				env["ARTIFACT_VIDEO_AUTHORITY_URL"] = "http://video.example/authorize"
+			}
+			got, err := configuredAuthority(func(k string) string { return env[k] })
+			if kind == "valid" {
+				if _, ok := got.(*authority.VideoNative); !ok || err != nil {
+					t.Fatal("Video producer was not configured")
+				}
+			} else if err == nil {
+				t.Fatal("invalid producer configuration accepted")
+			}
+		})
+	}
+}
