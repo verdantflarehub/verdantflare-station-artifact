@@ -22,10 +22,46 @@ import (
 // of version, retention and authorization truth.
 type S3 struct {
 	mu       sync.Mutex
+	puts     map[string]*objectPutLock
 	client   *minio.Client
 	bucket   string
 	prefix   string
 	maxBytes int64
+}
+
+type objectPutLock struct {
+	gate chan struct{}
+	refs int
+}
+
+// Keep immutable checks serialized per object, without blocking other uploads.
+func (s *S3) lockObject(ctx context.Context, id string) (func(), error) {
+	s.mu.Lock()
+	if s.puts == nil {
+		s.puts = make(map[string]*objectPutLock)
+	}
+	l := s.puts[id]
+	if l == nil {
+		l = &objectPutLock{gate: make(chan struct{}, 1)}
+		s.puts[id] = l
+	}
+	l.refs++
+	s.mu.Unlock()
+	release := func() {
+		s.mu.Lock()
+		l.refs--
+		if l.refs == 0 {
+			delete(s.puts, id)
+		}
+		s.mu.Unlock()
+	}
+	select {
+	case l.gate <- struct{}{}:
+		return func() { <-l.gate; release() }, nil
+	case <-ctx.Done():
+		release()
+		return nil, ctx.Err()
+	}
 }
 
 func NewS3(endpoint, bucket, accessKey, secretKey, region string, secure bool, maxBytes int64) (*S3, error) {
@@ -80,8 +116,6 @@ func s3NotFound(err error) bool {
 // size and digest match. Artifact holds a database advisory lock around this
 // operation so replicas sharing its database serialize the existence check.
 func (s *S3) Put(ctx context.Context, o Object, input io.Reader) (bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	if !s.valid(o) || input == nil {
 		return false, ErrInvalid
 	}
@@ -116,6 +150,12 @@ func (s *S3) Put(ctx context.Context, o Object, input io.Reader) (bool, error) {
 		tmp.Close()
 		return false, err
 	}
+	unlock, err := s.lockObject(ctx, o.ID)
+	if err != nil {
+		tmp.Close()
+		return false, err
+	}
+	defer unlock()
 	stat, err := s.client.StatObject(ctx, s.bucket, s.key(o), minio.StatObjectOptions{})
 	if err == nil {
 		closeErr := tmp.Close()
