@@ -161,7 +161,11 @@ func run(ctx context.Context, args []string) error {
 		if len(endpoints) == 0 {
 			return errors.New("ETCD_ENDPOINTS required for Artifact registration")
 		}
-		cli, e := clientv3.New(clientv3.Config{Endpoints: endpoints, DialTimeout: 5 * time.Second})
+		config, e := registryClientConfig(endpoints, os.Getenv)
+		if e != nil {
+			return e
+		}
+		cli, e := clientv3.New(config)
 		if e != nil {
 			return errors.New("invalid Artifact registry configuration")
 		}
@@ -169,7 +173,7 @@ func run(ctx context.Context, args []string) error {
 		u.Path = "/health"
 		version := os.Getenv("ARTIFACT_SERVICE_VERSION")
 		if version == "" {
-			version = "0.2.2"
+			version = "0.2.3"
 		}
 		reg := registry.ServiceRegistration{Domain: "artifact", Endpoint: address, HealthEndpoint: u.String(), Version: version, Tools: []registry.ToolDefinition{}}
 		for _, tool := range httpapi.MCPTools() {
