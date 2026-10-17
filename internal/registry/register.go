@@ -48,7 +48,7 @@ func Register(ctx context.Context, cli *clientv3.Client, registrations []Service
 		}()
 		for {
 			watchCtx, stopWatch := context.WithCancel(worker)
-			changes := cli.Watch(watchCtx, ServicesPrefix, clientv3.WithPrefix(), clientv3.WithRev(revision+1))
+			changes := registrationChanges(watchCtx, cli.Watch, registrations, revision)
 			lost := false
 			for !lost {
 				select {
@@ -137,4 +137,38 @@ func publish(ctx context.Context, cli *clientv3.Client, registrations []ServiceR
 	}
 	ok = true
 	return lease.ID, stream, result.Header.Revision, nil
+}
+
+// Watch only the exact keys owned by this publication. A prefix watch needs
+// broader read permission and would repeatedly revoke a healthy own lease.
+func registrationChanges(ctx context.Context, watch func(context.Context, string, ...clientv3.OpOption) clientv3.WatchChan, registrations []ServiceRegistration, revision int64) <-chan clientv3.WatchResponse {
+	changes := make(chan clientv3.WatchResponse)
+	var workers sync.WaitGroup
+	for _, registration := range registrations {
+		responses := watch(ctx, ServicesPrefix+registration.Domain, clientv3.WithRev(revision+1))
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case response, ok := <-responses:
+					if !ok {
+						response = clientv3.WatchResponse{Canceled: true}
+					}
+					select {
+					case changes <- response:
+					case <-ctx.Done():
+						return
+					}
+					if !ok {
+						return
+					}
+				}
+			}
+		}()
+	}
+	go func() { workers.Wait(); close(changes) }()
+	return changes
 }

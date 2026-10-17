@@ -3,7 +3,7 @@ name: Station Artifact
 env:
   REGISTRY_ENDPOINT: ${{ secrets.REGISTRY_ENDPOINT_ALIYUN }}
   IMAGE_NAME: wod/verdantflare-station
-  IMAGE_VERSION: artifact-v0.2.3
+  IMAGE_VERSION: artifact-v0.2.4
 
 on:
   push:

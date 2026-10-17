@@ -173,7 +173,7 @@ func run(ctx context.Context, args []string) error {
 		u.Path = "/health"
 		version := os.Getenv("ARTIFACT_SERVICE_VERSION")
 		if version == "" {
-			version = "0.2.3"
+			version = "0.2.4"
 		}
 		reg := registry.ServiceRegistration{Domain: "artifact", Endpoint: address, HealthEndpoint: u.String(), Version: version, Tools: []registry.ToolDefinition{}}
 		for _, tool := range httpapi.MCPTools() {
