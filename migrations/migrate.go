@@ -18,7 +18,7 @@ import (
 //go:embed *.sql
 var files embed.FS
 
-const Version = 1
+const Version = 2
 
 func Apply(ctx context.Context, pool *pgxpool.Pool, storeID string) error {
 	return run(ctx, pool, storeID, true)

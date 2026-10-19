@@ -97,7 +97,9 @@ func textMIME(raw string) bool {
 	mt, params, err := mime.ParseMediaType(raw)
 	return err == nil && (params["charset"] == "" || strings.EqualFold(params["charset"], "utf-8")) && (strings.HasPrefix(mt, "text/") || mt == "application/json" || strings.HasSuffix(mt, "+json"))
 }
-func userSource(s artifact.Source) bool { return s.Kind == "user_edit" || s.Kind == "user_import" }
+func userSource(s artifact.Source) bool {
+	return s.Valid() && (s.Kind == "user_edit" || s.Kind == "user_import")
+}
 
 func (s *Server) writeMCP(ctx context.Context, p artifact.Principal, args []byte) (any, error) {
 	var operation struct {
@@ -209,7 +211,11 @@ func (s *Server) readMCP(ctx context.Context, p artifact.Principal, args []byte)
 		}
 		return map[string]any{"mode": in.Mode, "version": v, "text": string(b)}, nil
 	}
-	path := "/v2/artifacts/" + v.VersionID + "/content?store_id=" + v.StoreID + "&artifact_id=" + v.ArtifactID
+	return map[string]any{"mode": in.Mode, "version": v, "content_path": downloadContentPath(v.ContentRef, a)}, nil
+}
+
+func downloadContentPath(ref artifact.ContentRef, a artifact.Access) string {
+	path := "/v2/artifacts/" + ref.VersionID + "/content?store_id=" + ref.StoreID + "&artifact_id=" + ref.ArtifactID
 	q := url.Values{}
 	if a.ProjectID != "" {
 		q.Set("project_id", a.ProjectID)
@@ -219,8 +225,12 @@ func (s *Server) readMCP(ctx context.Context, p artifact.Principal, args []byte)
 		q.Set("asset_id", a.AssetID)
 		q.Set("asset_version_id", a.AssetVersionID)
 	}
+	if a.WorldDraftID != "" {
+		q.Set("world_draft_id", a.WorldDraftID)
+		q.Set("world_draft_revision_id", a.WorldDraftRevisionID)
+	}
 	if len(q) > 0 {
 		path += "&" + q.Encode()
 	}
-	return map[string]any{"mode": in.Mode, "version": v, "content_path": path}, nil
+	return path
 }

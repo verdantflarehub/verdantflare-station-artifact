@@ -60,17 +60,28 @@ type OriginalRef struct {
 	TaskID     string `json:"task_id,omitempty"`
 }
 type Source struct {
-	Kind           string       `json:"kind"`
-	ProjectID      string       `json:"project_id,omitempty"`
-	ServiceID      string       `json:"service_id,omitempty"`
-	RunID          string       `json:"run_id,omitempty"`
-	TaskID         string       `json:"task_id,omitempty"`
-	Original       *OriginalRef `json:"original_ref,omitempty"`
-	AssetID        string       `json:"asset_id,omitempty"`
-	AssetVersionID string       `json:"asset_version_id,omitempty"`
+	Kind                 string       `json:"kind"`
+	ProjectID            string       `json:"project_id,omitempty"`
+	ServiceID            string       `json:"service_id,omitempty"`
+	RunID                string       `json:"run_id,omitempty"`
+	TaskID               string       `json:"task_id,omitempty"`
+	Original             *OriginalRef `json:"original_ref,omitempty"`
+	AssetID              string       `json:"asset_id,omitempty"`
+	AssetVersionID       string       `json:"asset_version_id,omitempty"`
+	WorldDraftID         string       `json:"world_draft_id,omitempty"`
+	WorldDraftRevisionID string       `json:"world_draft_revision_id,omitempty"`
 }
 
 func (s Source) Valid() bool {
+	if s.Kind == "world_draft_manifest" {
+		return ValidID(s.WorldDraftID) && ValidID(s.WorldDraftRevisionID) && s.ProjectID == "" && s.AssetID == "" && s.AssetVersionID == "" && s.ServiceID == "" && s.RunID == "" && s.TaskID == "" && s.Original == nil
+	}
+	if s.WorldDraftRevisionID != "" {
+		return false
+	}
+	if s.WorldDraftID != "" {
+		return (s.Kind == "user_edit" || s.Kind == "user_import") && ValidID(s.WorldDraftID) && s.ProjectID == "" && s.AssetID == "" && s.AssetVersionID == "" && s.ServiceID == "" && s.RunID == "" && s.TaskID == "" && s.Original == nil
+	}
 	if s.Kind == "asset_manifest" {
 		return ValidID(s.AssetID) && ValidID(s.AssetVersionID) && s.ProjectID == "" && s.ServiceID == "" && s.RunID == "" && s.TaskID == "" && s.Original == nil
 	}
@@ -100,8 +111,17 @@ func (s Source) Valid() bool {
 	return false
 }
 
-// SameOrigin keeps a logical Artifact bound to its original project/run.
+// SameOrigin keeps a logical Artifact bound to its original business context/run.
 func (s Source) SameOrigin(other Source) bool {
+	if !s.Valid() || !other.Valid() {
+		return false
+	}
+	if s.Kind == "world_draft_manifest" || other.Kind == "world_draft_manifest" {
+		return s.Kind == other.Kind && s.WorldDraftID == other.WorldDraftID && s.WorldDraftRevisionID == other.WorldDraftRevisionID
+	}
+	if s.WorldDraftID != "" || other.WorldDraftID != "" {
+		return s.WorldDraftID != "" && s.WorldDraftID == other.WorldDraftID
+	}
 	if s.Kind == "asset_manifest" || other.Kind == "asset_manifest" {
 		return s.Kind == other.Kind && s.AssetID == other.AssetID && s.AssetVersionID == other.AssetVersionID
 	}
@@ -174,7 +194,7 @@ type Owner struct {
 }
 
 func (o Owner) Valid() bool {
-	return (o.Kind == "project_revision" || o.Kind == "asset_version" || o.Kind == "pending_commit") && ValidID(o.ID) && ValidID(o.CommitID)
+	return (o.Kind == "project_revision" || o.Kind == "asset_version" || o.Kind == "pending_commit" || o.Kind == "world_draft_revision") && ValidID(o.ID) && ValidID(o.CommitID)
 }
 
 type RetainRequest struct {
@@ -187,17 +207,27 @@ type Retention struct {
 	Released bool         `json:"released"`
 }
 type Access struct {
-	ProjectID      string `json:"project_id,omitempty"`
-	RevisionID     string `json:"project_revision_id,omitempty"`
-	AssetID        string `json:"asset_id,omitempty"`
-	AssetVersionID string `json:"asset_version_id,omitempty"`
+	ProjectID            string `json:"project_id,omitempty"`
+	RevisionID           string `json:"project_revision_id,omitempty"`
+	AssetID              string `json:"asset_id,omitempty"`
+	AssetVersionID       string `json:"asset_version_id,omitempty"`
+	WorldDraftID         string `json:"world_draft_id,omitempty"`
+	WorldDraftRevisionID string `json:"world_draft_revision_id,omitempty"`
 }
 
 func (a Access) Valid() bool {
-	if a.ProjectID == "" && a.RevisionID == "" && a.AssetID == "" && a.AssetVersionID == "" {
-		return true
+	pairs := [][2]string{{a.ProjectID, a.RevisionID}, {a.AssetID, a.AssetVersionID}, {a.WorldDraftID, a.WorldDraftRevisionID}}
+	scopes := 0
+	for _, pair := range pairs {
+		if pair[0] == "" && pair[1] == "" {
+			continue
+		}
+		if !ValidID(pair[0]) || !ValidID(pair[1]) {
+			return false
+		}
+		scopes++
 	}
-	return (ValidID(a.ProjectID) && ValidID(a.RevisionID) && a.AssetID == "" && a.AssetVersionID == "") || (ValidID(a.AssetID) && ValidID(a.AssetVersionID) && a.ProjectID == "" && a.RevisionID == "")
+	return scopes <= 1
 }
 
 // Permission is evaluated by the owning business service against live grants.

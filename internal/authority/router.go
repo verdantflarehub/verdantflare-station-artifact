@@ -44,7 +44,7 @@ func authorityDomain(p artifact.Principal, in artifact.Permission) (string, bool
 		if in.Source == nil || !in.Source.Valid() || in.Version != nil || in.Owner != nil || in.Access != nil {
 			return "", false
 		}
-		if in.Source.Kind == "asset_manifest" {
+		if in.Source.Kind == "asset_manifest" || in.Source.WorldDraftID != "" {
 			return "world", true
 		}
 		switch in.Source.Kind {
@@ -61,7 +61,7 @@ func authorityDomain(p artifact.Principal, in artifact.Permission) (string, bool
 		if in.Action == "delete" && a != (artifact.Access{}) {
 			return "", false
 		}
-		if a.AssetID != "" {
+		if a.AssetID != "" || a.WorldDraftID != "" {
 			return "world", true
 		}
 		if a.ProjectID != "" {
@@ -69,7 +69,7 @@ func authorityDomain(p artifact.Principal, in artifact.Permission) (string, bool
 		}
 		// Without an explicit published-reference scope, the immutable source
 		// owns the decision. The service may still deny unsupported direct reads.
-		if in.Version.Source.Kind == "asset_manifest" {
+		if in.Version.Source.Kind == "asset_manifest" || in.Version.Source.WorldDraftID != "" {
 			return "world", true
 		}
 		if artifact.ValidID(in.Version.Source.ProjectID) {
@@ -93,7 +93,7 @@ func authorityDomain(p artifact.Principal, in artifact.Permission) (string, bool
 		switch in.Owner.Kind {
 		case "project_revision":
 			return "project", true
-		case "asset_version":
+		case "asset_version", "world_draft_revision":
 			return "world", true
 		default:
 			return "", false

@@ -171,7 +171,7 @@ func (s *Server) commit(w http.ResponseWriter, r *http.Request) {
 }
 func query(r *http.Request) (artifact.ContentRef, artifact.Access, error) {
 	q, err := url.ParseQuery(r.URL.RawQuery)
-	allowed := map[string]bool{"store_id": true, "artifact_id": true, "project_id": true, "project_revision_id": true, "asset_id": true, "asset_version_id": true}
+	allowed := map[string]bool{"store_id": true, "artifact_id": true, "project_id": true, "project_revision_id": true, "asset_id": true, "asset_version_id": true, "world_draft_id": true, "world_draft_revision_id": true}
 	if err != nil {
 		return artifact.ContentRef{}, artifact.Access{}, artifact.ErrInvalid
 	}
@@ -181,7 +181,7 @@ func query(r *http.Request) (artifact.ContentRef, artifact.Access, error) {
 		}
 	}
 	ref := artifact.ContentRef{StoreID: q.Get("store_id"), ArtifactID: q.Get("artifact_id"), VersionID: r.PathValue("version")}
-	a := artifact.Access{ProjectID: q.Get("project_id"), RevisionID: q.Get("project_revision_id"), AssetID: q.Get("asset_id"), AssetVersionID: q.Get("asset_version_id")}
+	a := artifact.Access{ProjectID: q.Get("project_id"), RevisionID: q.Get("project_revision_id"), AssetID: q.Get("asset_id"), AssetVersionID: q.Get("asset_version_id"), WorldDraftID: q.Get("world_draft_id"), WorldDraftRevisionID: q.Get("world_draft_revision_id")}
 	if !ref.Valid() || !a.Valid() {
 		return ref, a, artifact.ErrInvalid
 	}
