@@ -70,8 +70,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		failure(w, r, artifact.ErrInvalid)
 		return
 	}
-	// Only content lookup endpoints accept query parameters.
-	if r.URL.RawQuery != "" && !(r.Method == http.MethodGet && !strings.HasPrefix(r.URL.Path, "/v2/artifacts/uploads")) {
+	// Only content lookup and deletion endpoints accept query parameters.
+	if r.URL.RawQuery != "" && !((r.Method == http.MethodGet || r.Method == http.MethodDelete) && !strings.HasPrefix(r.URL.Path, "/v2/artifacts/uploads")) {
 		failure(w, r, artifact.ErrInvalid)
 		return
 	}
@@ -222,6 +222,22 @@ func (s *Server) content(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, f)
 }
 func (s *Server) remove(w http.ResponseWriter, r *http.Request) {
+	if r.URL.RawQuery != "" {
+		if !empty(w, r) {
+			return
+		}
+		ref, _, err := query(r)
+		if err != nil {
+			failure(w, r, err)
+			return
+		}
+		if err := s.service.Delete(r.Context(), principal(r), ref, ""); err != nil {
+			failure(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
 	var req struct {
 		StoreID    string `json:"store_id"`
 		ArtifactID string `json:"artifact_id"`

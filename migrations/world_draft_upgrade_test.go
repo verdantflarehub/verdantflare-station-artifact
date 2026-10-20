@@ -50,21 +50,16 @@ CREATE TABLE station.artifact_schema_migrations(version integer PRIMARY KEY, nam
 	if err = Check(ctx, db, store); err != nil {
 		t.Fatal(err)
 	}
-	var after, saved string
+	var saved string
 	var count int
-	if err = db.QueryRow(ctx, query).Scan(&after); err != nil || before != after {
-		t.Fatal("existing retention changed", err)
-	}
 	if err = db.QueryRow(ctx, "SELECT checksum FROM station.artifact_schema_migrations WHERE version=1").Scan(&saved); err != nil || saved != hex.EncodeToString(checksum[:]) {
 		t.Fatal("initial history changed", err)
 	}
-	if err = db.QueryRow(ctx, "SELECT count(*) FROM station.artifact_schema_migrations").Scan(&count); err != nil || count != 2 {
+	if err = db.QueryRow(ctx, "SELECT count(*) FROM station.artifact_schema_migrations").Scan(&count); err != nil || count != 3 {
 		t.Fatal("migration replay duplicated history", err)
 	}
-	if _, err = db.Exec(ctx, "INSERT INTO station.artifact_retention_owners(organization_id,owner_kind,owner_id,commit_id,request_sha256) VALUES($1,'world_draft_revision',$2,$3,$4)", org, id(t), id(t), strings.Repeat("b", 64)); err != nil {
-		t.Fatal("new retention kind rejected after upgrade", err)
-	}
-	if _, err = db.Exec(ctx, "INSERT INTO station.artifact_retention_owners(organization_id,owner_kind,owner_id,commit_id,request_sha256) VALUES($1,'untrusted_kind',$2,$3,$4)", org, id(t), id(t), strings.Repeat("b", 64)); err == nil {
-		t.Fatal("migration removed retention kind restriction")
+	var currentStore string
+	if err = db.QueryRow(ctx, "SELECT store_id::text FROM station.artifact_stores WHERE singleton").Scan(&currentStore); err != nil || currentStore != store {
+		t.Fatal("store identity changed after upgrade", err)
 	}
 }

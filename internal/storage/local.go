@@ -47,6 +47,7 @@ type Backend interface {
 	Put(context.Context, Object, io.Reader) (reused bool, err error)
 	Open(context.Context, Object) (Reader, error)
 	Verify(context.Context, Object) error
+	Delete(context.Context, string) error
 	Close() error
 }
 
@@ -213,6 +214,19 @@ func (l *Local) Verify(ctx context.Context, o Object) error {
 		return err
 	}
 	return f.Close()
+}
+
+func (l *Local) Delete(ctx context.Context, id string) error {
+	if !idPattern.MatchString(id) {
+		return ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := l.root.Remove("objects/" + id); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return syncObjects(l.root)
 }
 
 type contextReader struct {

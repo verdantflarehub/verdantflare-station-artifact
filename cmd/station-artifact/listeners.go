@@ -9,11 +9,8 @@ import (
 	"strings"
 )
 
-func artifactListenerConfig(business, mcp, advertise, endpoints, mode string, withTLS bool) error {
+func artifactListenerConfig(business, mcp, advertise, endpoints string, withTLS bool) error {
 	if mcp == "" {
-		if mode == "split" && advertise != "" {
-			return errors.New("split Artifact MCP registration requires a separate listener")
-		}
 		return nil
 	}
 	_, businessPort, err := net.SplitHostPort(business)

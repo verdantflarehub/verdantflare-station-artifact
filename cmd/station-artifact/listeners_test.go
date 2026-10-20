@@ -34,20 +34,19 @@ func TestArtifactListenerIsolation(t *testing.T) {
 
 func TestArtifactListenerConfiguration(t *testing.T) {
 	for _, tc := range []struct {
-		business, mcp, advertise, endpoints, mode string
-		tls, valid                                bool
+		business, mcp, advertise, endpoints string
+		tls, valid                          bool
 	}{
-		{"0.0.0.0:8094", "", "https://artifact:8094/mcp", "http://etcd:2379", "legacy", true, true},
-		{"0.0.0.0:8094", "", "", "", "split", true, true},
-		{"0.0.0.0:8094", "", "https://artifact:8094/mcp", "http://etcd:2379", "split", true, false},
-		{"0.0.0.0:8094", "0.0.0.0:8194", "https://artifact:8194/mcp", "http://etcd:2379", "split", true, true},
-		{"0.0.0.0:8094", "0.0.0.0:8094", "https://artifact:8094/mcp", "http://etcd:2379", "split", true, false},
-		{"0.0.0.0:8094", "0.0.0.0:8194", "http://artifact:8194/mcp", "http://etcd:2379", "split", false, false},
-		{"0.0.0.0:8094", "0.0.0.0:8194", "http://artifact:8194/mcp", "http://etcd:2379", "split", true, false},
-		{"0.0.0.0:8094", "0.0.0.0:8194", "https://artifact:8194/mcp?", "http://etcd:2379", "split", true, false},
-		{"0.0.0.0:8094", "0.0.0.0:8194", "https://artifact:8194/mcp", "", "split", true, false},
+		{"0.0.0.0:8094", "", "https://artifact:8094/mcp", "http://etcd:2379", true, true},
+		{"0.0.0.0:8094", "", "", "", true, true},
+		{"0.0.0.0:8094", "0.0.0.0:8194", "https://artifact:8194/mcp", "http://etcd:2379", true, true},
+		{"0.0.0.0:8094", "0.0.0.0:8094", "https://artifact:8094/mcp", "http://etcd:2379", true, false},
+		{"0.0.0.0:8094", "0.0.0.0:8194", "http://artifact:8194/mcp", "http://etcd:2379", false, false},
+		{"0.0.0.0:8094", "0.0.0.0:8194", "http://artifact:8194/mcp", "http://etcd:2379", true, false},
+		{"0.0.0.0:8094", "0.0.0.0:8194", "https://artifact:8194/mcp?", "http://etcd:2379", true, false},
+		{"0.0.0.0:8094", "0.0.0.0:8194", "https://artifact:8194/mcp", "", true, false},
 	} {
-		err := artifactListenerConfig(tc.business, tc.mcp, tc.advertise, tc.endpoints, tc.mode, tc.tls)
+		err := artifactListenerConfig(tc.business, tc.mcp, tc.advertise, tc.endpoints, tc.tls)
 		if (err == nil) != tc.valid {
 			t.Fatalf("listener validity %v, want %v", err == nil, tc.valid)
 		}

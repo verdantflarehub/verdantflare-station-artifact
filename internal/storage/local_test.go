@@ -165,5 +165,11 @@ func TestBinaryAndEmptyObjects(t *testing.T) {
 		if err != nil || !bytes.Equal(got, data) {
 			t.Fatal("binary roundtrip failed", err)
 		}
+		if err := s.Delete(context.Background(), o.ID); err != nil {
+			t.Fatalf("Delete failed: %v", err)
+		}
+		if _, err := s.Open(context.Background(), o); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("Open after Delete = %v, want os.ErrNotExist", err)
+		}
 	}
 }

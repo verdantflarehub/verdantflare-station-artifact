@@ -57,16 +57,15 @@ func run(ctx context.Context, args []string) error {
 		return nil
 	}
 	token := os.Getenv("ARTIFACT_SERVICE_TOKEN")
+	if len(token) < 32 || strings.ContainsAny(token, " \t\r\n") {
+		return errors.New("valid internal Artifact credential required")
+	}
 	maxSize := int64(1 << 30)
 	if raw := os.Getenv("ARTIFACT_MAX_CONTENT_BYTES"); raw != "" {
 		maxSize, err = strconv.ParseInt(raw, 10, 64)
 		if err != nil || maxSize <= 0 || maxSize > 1<<50 {
 			return errors.New("invalid ARTIFACT_MAX_CONTENT_BYTES")
 		}
-	}
-	auth, err := configuredAuthority(os.Getenv)
-	if err != nil {
-		return err
 	}
 	if err = migrations.Check(startup, db, store); err != nil {
 		return errors.New("Artifact migration/store check failed; run migrate explicitly with the correct identity")
@@ -81,7 +80,7 @@ func run(ctx context.Context, args []string) error {
 			return errors.New("Artifact storage readiness check failed")
 		}
 	}
-	service, err := artifact.New(startup, db, blobs, auth, store, maxSize)
+	service, err := artifact.New(startup, db, blobs, store, maxSize)
 	if err != nil {
 		return errors.New("Artifact service initialization failed")
 	}
@@ -101,8 +100,7 @@ func run(ctx context.Context, args []string) error {
 		return errors.New("Artifact non-loopback listener requires TLS")
 	}
 	mcpAddr := os.Getenv("ARTIFACT_MCP_LISTEN_ADDR")
-	mode := os.Getenv("ARTIFACT_AUTHORITY_MODE")
-	if err = artifactListenerConfig(addr, mcpAddr, os.Getenv("ARTIFACT_MCP_ADVERTISE_URL"), os.Getenv("ETCD_ENDPOINTS"), mode, certFile != ""); err != nil {
+	if err = artifactListenerConfig(addr, mcpAddr, os.Getenv("ARTIFACT_MCP_ADVERTISE_URL"), os.Getenv("ETCD_ENDPOINTS"), certFile != ""); err != nil {
 		return err
 	}
 	var tlsConfig *tls.Config
@@ -130,7 +128,7 @@ func run(ctx context.Context, args []string) error {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"status":"ok","service":"station-artifact"}`))
 	})
-	server := &http.Server{Handler: artifactListenerHandler(handler, health, false, mode == "split" || mcpAddr != ""), TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
+	server := &http.Server{Handler: artifactListenerHandler(handler, health, false, mcpAddr != ""), TLSConfig: tlsConfig, ReadHeaderTimeout: 10 * time.Second, ReadTimeout: 30 * time.Minute, WriteTimeout: 30 * time.Minute, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16 << 10}
 	done := make(chan error, 2)
 	serve := func(server *http.Server, listener net.Listener) {
 		if certFile != "" {
@@ -173,7 +171,7 @@ func run(ctx context.Context, args []string) error {
 		u.Path = "/health"
 		version := os.Getenv("ARTIFACT_SERVICE_VERSION")
 		if version == "" {
-			version = "0.2.5"
+			version = "0.2.6"
 		}
 		reg := registry.ServiceRegistration{Domain: "artifact", Endpoint: address, HealthEndpoint: u.String(), Version: version, Tools: []registry.ToolDefinition{}}
 		for _, tool := range httpapi.MCPTools() {

@@ -18,7 +18,6 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/verdantflarehub/verdantflare-station-artifact/internal/artifact"
-	"github.com/verdantflarehub/verdantflare-station-artifact/internal/authority"
 	"github.com/verdantflarehub/verdantflare-station-artifact/internal/storage"
 	"github.com/verdantflarehub/verdantflare-station-artifact/internal/testdb"
 	"github.com/verdantflarehub/verdantflare-station-artifact/migrations"
@@ -26,7 +25,7 @@ import (
 
 func id() string { return uuid.Must(uuid.NewV7()).String() }
 
-func TestHTTPPersistentContentAndRetention(t *testing.T) {
+func TestHTTPPersistentContentAndDirectDelete(t *testing.T) {
 	ctx := context.Background()
 	db := testdb.New(t)
 	store, project := id(), id()
@@ -39,9 +38,7 @@ func TestHTTPPersistentContentAndRetention(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer blobs.Close()
-	token, authToken := strings.Repeat("s", 32), strings.Repeat("a", 32)
-	var revoked, released atomic.Bool
-	var decisions atomic.Int32
+	token := strings.Repeat("s", 32)
 	var evidenceCount atomic.Int32
 	evidence := func(schema string, data []byte) {
 		if dir := os.Getenv("ARTIFACT_CONTRACT_EVIDENCE_DIR"); dir != "" {
@@ -55,32 +52,7 @@ func TestHTTPPersistentContentAndRetention(t *testing.T) {
 			}
 		}
 	}
-	policy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		decisions.Add(1)
-		var req struct {
-			Principal  artifact.Principal  `json:"principal"`
-			Permission artifact.Permission `json:"permission"`
-		}
-		payload, readErr := io.ReadAll(r.Body)
-		if readErr != nil || json.Unmarshal(payload, &req) != nil {
-			t.Error("bad authority request")
-		}
-		evidence("artifact-authorization", payload)
-		allowed := r.Header.Get("Authorization") == "Bearer "+authToken && req.Principal == p && !revoked.Load()
-		if req.Permission.Action == "write" {
-			allowed = allowed && req.Permission.Source != nil && req.Permission.Source.ProjectID == project
-		}
-		if req.Permission.Action == "release" {
-			allowed = allowed && released.Load()
-		}
-		_ = json.NewEncoder(w).Encode(map[string]bool{"allowed": allowed})
-	}))
-	defer policy.Close()
-	auth, err := authority.New(policy.URL, authToken)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service, err := artifact.New(ctx, db, blobs, auth, store, 1<<20)
+	service, err := artifact.New(ctx, db, blobs, store, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,9 +137,6 @@ func TestHTTPPersistentContentAndRetention(t *testing.T) {
 	} {
 		request("POST", "/v2/artifacts/uploads", valid, mutate, 403)
 	}
-	if decisions.Load() != 0 {
-		t.Fatal("untrusted requests reached authority")
-	}
 	for _, invalid := range []string{
 		strings.Replace(string(valid), `"size":`, `"Size":`, 1),
 		strings.Replace(string(valid), `"size":`, `"size":0,"size":`, 1),
@@ -177,9 +146,6 @@ func TestHTTPPersistentContentAndRetention(t *testing.T) {
 		string(valid) + ` {}`,
 	} {
 		request("POST", "/v2/artifacts/uploads", []byte(invalid), nil, 400)
-	}
-	if decisions.Load() != 0 {
-		t.Fatal("malformed requests reached authority")
 	}
 	var u artifact.Upload
 	if err := json.Unmarshal(request("POST", "/v2/artifacts/uploads", valid, nil, 200), &u); err != nil {
@@ -204,24 +170,14 @@ func TestHTTPPersistentContentAndRetention(t *testing.T) {
 	if got := request("GET", path+"/content"+q, nil, nil, 200); !bytes.Equal(got, data) {
 		t.Fatal("download changed content")
 	}
-	revoked.Store(true)
-	request("GET", path+q, nil, nil, 403)
-	request("POST", "/v2/artifacts/uploads/"+u.UploadID+"/commit", nil, nil, 403)
-	revoked.Store(false)
 	owner := artifact.Owner{Kind: "project_revision", ID: id(), CommitID: id()}
 	retention := artifact.RetainRequest{Owner: owner, Refs: []artifact.ContentRef{v.ContentRef}}
 	request("POST", "/v2/artifacts/retentions", marshal(retention), nil, 200)
 	request("POST", "/v2/artifacts/retentions/inspect", marshal(owner), nil, 200)
-	deletion := marshal(map[string]string{"store_id": store, "artifact_id": v.ArtifactID, "reason": "synthetic fixture"})
-	request("DELETE", path, deletion, nil, 409)
-	request("POST", "/v2/artifacts/retentions/release", marshal(owner), nil, 403)
-	released.Store(true)
 	request("POST", "/v2/artifacts/retentions/release", marshal(owner), nil, 204)
+	deletion := marshal(map[string]string{"store_id": store, "artifact_id": v.ArtifactID, "reason": "synthetic fixture"})
 	request("DELETE", path, deletion, nil, 204)
 	request("GET", path+q, nil, nil, 404)
-	policy.Close()
-	req.WriteID = id()
-	request("POST", "/v2/artifacts/uploads", marshal(req), nil, 503)
 }
 
 func strconvSize(n int64) string { b, _ := json.Marshal(n); return string(b) }

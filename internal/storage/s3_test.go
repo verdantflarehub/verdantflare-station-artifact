@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -107,6 +108,9 @@ func TestS3PutOpenAndIntegrity(t *testing.T) {
 			w.Header().Set("Last-Modified", time.Now().UTC().Format(http.TimeFormat))
 			w.Header().Set("ETag", `"test"`)
 			_, _ = w.Write(obj.body)
+		case http.MethodDelete:
+			delete(objects, key)
+			w.WriteHeader(http.StatusNoContent)
 		default:
 			w.WriteHeader(http.StatusMethodNotAllowed)
 		}
@@ -151,6 +155,12 @@ func TestS3PutOpenAndIntegrity(t *testing.T) {
 	reader.Close()
 	if err != ErrCorrupt {
 		t.Fatalf("corrupt Open error = %v, want ErrCorrupt", err)
+	}
+	if err := backend.Delete(t.Context(), o.ID); err != nil {
+		t.Fatalf("Delete error = %v", err)
+	}
+	if _, err := backend.Open(t.Context(), o); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Open after Delete error = %v, want os.ErrNotExist", err)
 	}
 }
 

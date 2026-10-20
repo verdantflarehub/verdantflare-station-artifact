@@ -1,7 +1,6 @@
 package artifact
 
 import (
-	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -228,17 +227,4 @@ func (a Access) Valid() bool {
 		scopes++
 	}
 	return scopes <= 1
-}
-
-// Permission is evaluated by the owning business service against live grants.
-// For release, that service MUST establish that the owner is terminal/unreachable.
-type Permission struct {
-	Action  string   `json:"action"`
-	Source  *Source  `json:"source,omitempty"`
-	Version *Version `json:"version,omitempty"`
-	Owner   *Owner   `json:"owner,omitempty"`
-	Access  *Access  `json:"access,omitempty"`
-}
-type Authorizer interface {
-	Authorize(context.Context, Principal, Permission) error
 }

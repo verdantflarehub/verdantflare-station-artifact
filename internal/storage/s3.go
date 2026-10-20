@@ -229,6 +229,25 @@ func (s *S3) Verify(ctx context.Context, o Object) error {
 	return closeErr
 }
 
+func (s *S3) Delete(ctx context.Context, id string) error {
+	if !idPattern.MatchString(id) {
+		return ErrInvalid
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	unlock, err := s.lockObject(ctx, id)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	err = s.client.RemoveObject(ctx, s.bucket, path.Join(s.prefix, id), minio.RemoveObjectOptions{})
+	if err != nil && !s3NotFound(err) {
+		return err
+	}
+	return nil
+}
+
 type verifiedObject struct {
 	ctx          context.Context
 	object       *minio.Object

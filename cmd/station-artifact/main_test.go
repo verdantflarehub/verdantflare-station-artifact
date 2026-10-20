@@ -5,7 +5,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -23,10 +22,6 @@ func TestMigrateServeAndShutdown(t *testing.T) {
 	t.Setenv("ARTIFACT_STORAGE_BACKEND", "local")
 	token := strings.Repeat("s", 32)
 	t.Setenv("ARTIFACT_SERVICE_TOKEN", token)
-	t.Setenv("ARTIFACT_AUTHORITY_TOKEN", strings.Repeat("a", 32))
-	policy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(403) }))
-	defer policy.Close()
-	t.Setenv("ARTIFACT_AUTHORITY_URL", policy.URL)
 	t.Setenv("ARTIFACT_MAX_CONTENT_BYTES", "1048576")
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -54,11 +49,11 @@ func TestMigrateServeAndShutdown(t *testing.T) {
 		t.Fatal("serve accepted wrong store identity")
 	}
 	t.Setenv("ARTIFACT_STORE_ID", store)
-	t.Setenv("ARTIFACT_AUTHORITY_TOKEN", "")
+	t.Setenv("ARTIFACT_SERVICE_TOKEN", "")
 	if err := run(ctx, []string{"serve"}); err == nil {
-		t.Fatal("serve accepted missing authority credential")
+		t.Fatal("serve accepted missing service credential")
 	}
-	t.Setenv("ARTIFACT_AUTHORITY_TOKEN", strings.Repeat("a", 32))
+	t.Setenv("ARTIFACT_SERVICE_TOKEN", token)
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	done := make(chan error, 1)

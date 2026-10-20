@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"testing"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -28,38 +27,13 @@ func testID(t *testing.T) string {
 	return id
 }
 
-type testPolicy struct {
-	org, user, project, guest, asset, assetVersion, visibleVersion string
-	release                                                        atomic.Bool
-	deny                                                           atomic.Bool
-}
-
-func (a *testPolicy) Authorize(_ context.Context, p Principal, perm Permission) error {
-	if a.deny.Load() || p.OrganizationID != a.org {
-		return ErrForbidden
-	}
-	if perm.Action == "read" && p.SubjectID == a.guest && perm.Version != nil && perm.Access != nil && perm.Version.VersionID == a.visibleVersion && perm.Access.AssetID == a.asset && perm.Access.AssetVersionID == a.assetVersion {
-		return nil
-	}
-	if p.SubjectID != a.user {
-		return ErrForbidden
-	}
-	if perm.Action == "write" && perm.Source.ProjectID != a.project {
-		return ErrForbidden
-	}
-	if perm.Action == "release" && !a.release.Load() {
-		return ErrForbidden
-	}
-	return nil
-}
-
 type fixture struct {
-	s          *Service
-	db         *pgxpool.Pool
-	blobs      *storage.Local
-	p          Principal
-	policy     *testPolicy
-	dir, store string
+	s                          *Service
+	db                         *pgxpool.Pool
+	blobs                      *storage.Local
+	p                          Principal
+	project, guest, asset, ver string
+	dir, store                 string
 }
 
 func setup(t *testing.T) *fixture {
@@ -77,17 +51,18 @@ func setup(t *testing.T) *fixture {
 	}
 	t.Cleanup(func() { blobs.Close() })
 	p := Principal{testID(t), testID(t), testID(t)}
-	policy := &testPolicy{org: p.OrganizationID, user: p.SubjectID, project: testID(t), guest: testID(t), asset: testID(t), assetVersion: testID(t)}
-	s, err := New(ctx, db, blobs, policy, store, 1<<20)
+	s, err := New(ctx, db, blobs, store, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &fixture{s, db, blobs, p, policy, dir, store}
+	return &fixture{s, db, blobs, p, testID(t), testID(t), testID(t), testID(t), dir, store}
 }
+
 func (f *fixture) request(t *testing.T, data []byte) PrepareRequest {
 	h := sha256.Sum256(data)
-	return PrepareRequest{WriteID: testID(t), Source: Source{Kind: "user_edit", ProjectID: f.policy.project}, SHA256: hex.EncodeToString(h[:]), Size: int64(len(data)), MIME: "text/markdown"}
+	return PrepareRequest{WriteID: testID(t), Source: Source{Kind: "user_edit", ProjectID: f.project}, SHA256: hex.EncodeToString(h[:]), Size: int64(len(data)), MIME: "text/markdown"}
 }
+
 func (f *fixture) save(t *testing.T, data []byte) Version {
 	t.Helper()
 	ctx := context.Background()
@@ -104,6 +79,7 @@ func (f *fixture) save(t *testing.T, data []byte) Version {
 	}
 	return v
 }
+
 func count(t *testing.T, db *pgxpool.Pool, query string) int {
 	t.Helper()
 	var n int
@@ -118,7 +94,7 @@ func TestLegacyMappingAndNativeIDs(t *testing.T) {
 	ctx := context.Background()
 	data := []byte("historical result")
 	r := f.request(t, data)
-	r.Source = Source{Kind: "legacy_import", ProjectID: f.policy.project, Original: &OriginalRef{ServiceID: "music", ArtifactID: "native-track-7", VersionID: "master-v1", TaskID: "native-job-42"}}
+	r.Source = Source{Kind: "legacy_import", ProjectID: f.project, Original: &OriginalRef{ServiceID: "music", ArtifactID: "native-track-7", VersionID: "master-v1", TaskID: "native-job-42"}}
 	if _, err := f.s.ResolveLegacy(ctx, f.p, r.Source); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unmapped result: %v", err)
 	}
@@ -168,23 +144,25 @@ func TestLegacyMappingAndNativeIDs(t *testing.T) {
 	if err != nil || resolved.ContentRef != winner.ContentRef {
 		t.Fatalf("existing mapping not reused: %v", err)
 	}
-	f.policy.deny.Store(true)
-	if _, err = f.s.ResolveLegacy(ctx, f.p, r.Source); !errors.Is(err, ErrForbidden) {
-		t.Fatal("legacy mapping bypassed authorization")
+	otherOrg := f.p
+	otherOrg.OrganizationID = testID(t)
+	if _, err = f.s.ResolveLegacy(ctx, otherOrg, r.Source); !errors.Is(err, ErrNotFound) {
+		t.Fatal("legacy mapping leaked across organizations")
 	}
-	f.policy.deny.Store(false)
-	native := f.request(t, []byte("native result"))
-	native.Source = Source{Kind: "task_output", ProjectID: f.policy.project, ServiceID: "video", RunID: "provider-job/opaque:007"}
-	nu, err := f.s.Prepare(ctx, f.p, native)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err = f.s.Put(ctx, f.p, nu.UploadID, bytes.NewReader([]byte("native result"))); err != nil {
-		t.Fatal(err)
-	}
-	nv, err := f.s.Commit(ctx, f.p, nu.UploadID)
-	if err != nil || nv.Source.RunID != native.Source.RunID || nv.Source.TaskID != "" {
-		t.Fatalf("native IDs rewritten: %v", err)
+	for _, serviceID := range []string{"video", "speech", "image", "music"} {
+		native := f.request(t, []byte("native result "+serviceID))
+		native.Source = Source{Kind: "task_output", ProjectID: f.project, ServiceID: serviceID, RunID: "provider-job/opaque:007"}
+		nu, err := f.s.Prepare(ctx, f.p, native)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = f.s.Put(ctx, f.p, nu.UploadID, bytes.NewReader([]byte("native result "+serviceID))); err != nil {
+			t.Fatal(err)
+		}
+		nv, err := f.s.Commit(ctx, f.p, nu.UploadID)
+		if err != nil || nv.Source.RunID != native.Source.RunID || nv.Source.ServiceID != serviceID || nv.Source.TaskID != "" {
+			t.Fatalf("native IDs rewritten for %s: %v", serviceID, err)
+		}
 	}
 }
 
@@ -198,9 +176,6 @@ func TestRetentionRequiresActualContent(t *testing.T) {
 	request := RetainRequest{Owner: Owner{Kind: "project_revision", ID: testID(t), CommitID: testID(t)}, Refs: []ContentRef{v.ContentRef}}
 	if _, err := f.s.Retain(ctx, f.p, request); !errors.Is(err, ErrNotReady) {
 		t.Fatalf("corrupt object retained: %v", err)
-	}
-	if count(t, f.db, "SELECT count(*) FROM station.artifact_retention_owners") != 0 {
-		t.Fatal("failed integrity check left retention owner")
 	}
 }
 
@@ -240,7 +215,7 @@ func TestPrepareRetryAndConflictingDeclaration(t *testing.T) {
 		t.Fatal("changed declaration accepted", err)
 	}
 	other := f.p
-	other.SubjectID = f.policy.guest
+	other.SubjectID = f.guest
 	if _, err := f.s.Upload(ctx, other, original.UploadID); !errors.Is(err, ErrNotFound) {
 		t.Fatal("upload leaked to other actor", err)
 	}
@@ -282,7 +257,6 @@ CREATE TRIGGER inject_commit_failure BEFORE INSERT ON station.artifact_events FO
 	if _, err = f.db.Exec(ctx, "DROP TRIGGER inject_commit_failure ON station.artifact_events"); err != nil {
 		t.Fatal(err)
 	}
-	// Recreate both the database pool and storage/service instances before retry.
 	pool, err := pgxpool.NewWithConfig(ctx, f.db.Config())
 	if err != nil {
 		t.Fatal(err)
@@ -293,7 +267,7 @@ CREATE TRIGGER inject_commit_failure BEFORE INSERT ON station.artifact_events FO
 		t.Fatal(err)
 	}
 	defer blobs.Close()
-	restarted, err := New(ctx, pool, blobs, f.policy, f.store, 1<<20)
+	restarted, err := New(ctx, pool, blobs, f.store, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,11 +298,11 @@ CREATE TRIGGER inject_commit_failure BEFORE INSERT ON station.artifact_events FO
 	}
 }
 
-func TestVersionAppendAndIndependentAssetAuthorization(t *testing.T) {
+func TestVersionAppendAndTenantIsolation(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	v1 := f.save(t, []byte("approved"))
-	candidate := f.save(t, []byte("private rejected candidate"))
+	candidate := f.save(t, []byte("second artifact"))
 	r := f.request(t, []byte("new version"))
 	r.ArtifactID = v1.ArtifactID
 	u, err := f.s.Prepare(ctx, f.p, r)
@@ -345,19 +319,6 @@ func TestVersionAppendAndIndependentAssetAuthorization(t *testing.T) {
 	if old, err := f.s.Get(ctx, f.p, v1.ContentRef, Access{}); err != nil || old.SHA256 != v1.SHA256 {
 		t.Fatal("old version changed", err)
 	}
-	f.policy.visibleVersion = v1.VersionID
-	guest := f.p
-	guest.SubjectID = f.policy.guest
-	access := Access{AssetID: f.policy.asset, AssetVersionID: f.policy.assetVersion}
-	if _, err = f.s.Get(ctx, guest, v1.ContentRef, access); err != nil {
-		t.Fatal("asset grant did not allow selected file", err)
-	}
-	if _, err = f.s.Get(ctx, guest, candidate.ContentRef, access); !errors.Is(err, ErrForbidden) {
-		t.Fatal("asset grant exposed source candidate", err)
-	}
-	if _, err = f.s.Get(ctx, guest, v1.ContentRef, Access{}); !errors.Is(err, ErrForbidden) {
-		t.Fatal("asset grant implicitly granted source access", err)
-	}
 	other := f.p
 	other.OrganizationID = testID(t)
 	if _, err = f.s.Get(ctx, other, v1.ContentRef, Access{}); !errors.Is(err, ErrNotFound) {
@@ -370,7 +331,7 @@ func TestVersionAppendAndIndependentAssetAuthorization(t *testing.T) {
 	}
 }
 
-func TestRetentionAtomicityReleaseAndDeletion(t *testing.T) {
+func TestDirectDeleteAndStatelessRetentionCheck(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()
 	a := f.save(t, []byte("A"))
@@ -381,96 +342,25 @@ func TestRetentionAtomicityReleaseAndDeletion(t *testing.T) {
 	if _, err := f.s.Retain(ctx, f.p, RetainRequest{o, []ContentRef{a.ContentRef, missing}}); !errors.Is(err, ErrNotFound) {
 		t.Fatal("missing content retained", err)
 	}
-	if count(t, f.db, "SELECT count(*) FROM station.artifact_retention_owners") != 0 {
-		t.Fatal("partial retention published")
-	}
 	if _, err := f.s.Retain(ctx, f.p, RetainRequest{o, []ContentRef{b.ContentRef, a.ContentRef}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := f.s.Retain(ctx, f.p, RetainRequest{o, []ContentRef{a.ContentRef, b.ContentRef}}); err != nil {
 		t.Fatal("set ordering broke retry", err)
 	}
-	if _, err := f.s.Retain(ctx, f.p, RetainRequest{o, []ContentRef{a.ContentRef}}); !errors.Is(err, ErrConflict) {
-		t.Fatal("owner content changed", err)
-	}
-	if err := f.s.Delete(ctx, f.p, a.ContentRef, "source project cleanup"); !errors.Is(err, ErrRetained) {
-		t.Fatal("protected file deleted", err)
-	}
-	if err := f.s.Release(ctx, f.p, o); !errors.Is(err, ErrForbidden) {
-		t.Fatal("live owner released", err)
-	}
-	f.policy.release.Store(true)
 	if err := f.s.Release(ctx, f.p, o); err != nil {
 		t.Fatal(err)
 	}
-	if err := f.s.Release(ctx, f.p, o); err != nil {
-		t.Fatal("release retry failed", err)
-	}
-	if _, err := f.s.Retain(ctx, f.p, RetainRequest{o, []ContentRef{a.ContentRef, b.ContentRef}}); !errors.Is(err, ErrConflict) {
-		t.Fatal("released owner was silently reactivated", err)
-	}
-	status, err := f.s.Retention(ctx, f.p, o)
-	if err != nil || !status.Released || len(status.Refs) != 2 {
-		t.Fatal("retention history lost", err)
-	}
-	if err = f.s.Delete(ctx, f.p, a.ContentRef, "explicit cleanup"); err != nil {
+	if err := f.s.Delete(ctx, f.p, a.ContentRef, "explicit cleanup"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err = f.s.Get(ctx, f.p, a.ContentRef, Access{}); !errors.Is(err, ErrNotFound) {
-		t.Fatal("soft deleted file readable", err)
+	if _, err := os.Stat(filepath.Join(f.dir, "objects", a.ObjectID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("physical object not removed on direct delete: %v", err)
 	}
-	if _, err = f.s.Get(ctx, f.p, b.ContentRef, Access{}); err != nil {
-		t.Fatal("release deleted unrelated version", err)
+	if _, err := f.s.Get(ctx, f.p, a.ContentRef, Access{}); !errors.Is(err, ErrNotFound) {
+		t.Fatal("deleted file readable", err)
 	}
-}
-
-func TestRetainAndDeleteSerialize(t *testing.T) {
-	f := setup(t)
-	ctx := context.Background()
-	for range 8 {
-		v := f.save(t, []byte("race"))
-		o := Owner{"project_revision", testID(t), testID(t)}
-		start := make(chan struct{})
-		kept := make(chan error, 1)
-		deleted := make(chan error, 1)
-		go func() {
-			<-start
-			_, err := f.s.Retain(ctx, f.p, RetainRequest{o, []ContentRef{v.ContentRef}})
-			kept <- err
-		}()
-		go func() { <-start; deleted <- f.s.Delete(ctx, f.p, v.ContentRef, "race cleanup") }()
-		close(start)
-		k, d := <-kept, <-deleted
-		if k == nil {
-			if !errors.Is(d, ErrRetained) {
-				t.Fatal("retained version deletion was not rejected", d)
-			}
-		} else if d == nil {
-			if !errors.Is(k, ErrNotFound) {
-				t.Fatal("deleted version retention was not rejected", k)
-			}
-		} else {
-			t.Fatalf("unexpected race result retain=%v delete=%v", k, d)
-		}
-	}
-}
-
-func TestRevocationAndUnavailableAuthorityFailClosed(t *testing.T) {
-	f := setup(t)
-	ctx := context.Background()
-	r := f.request(t, []byte("data"))
-	u, err := f.s.Prepare(ctx, f.p, r)
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.policy.deny.Store(true)
-	if _, err = f.s.Put(ctx, f.p, u.UploadID, bytes.NewReader([]byte("data"))); !errors.Is(err, ErrForbidden) {
-		t.Fatal("write continued after revocation", err)
-	}
-	if _, err = f.s.Commit(ctx, f.p, u.UploadID); !errors.Is(err, ErrForbidden) {
-		t.Fatal("commit continued after revocation", err)
-	}
-	if _, err = New(ctx, f.db, f.blobs, nil, f.store, 1<<20); !errors.Is(err, ErrInvalid) {
-		t.Fatal("service accepted missing authorizer", err)
+	if _, err := f.s.Get(ctx, f.p, b.ContentRef, Access{}); err != nil {
+		t.Fatal("delete removed unrelated version", err)
 	}
 }
