@@ -74,6 +74,8 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 			value, err = s.writeMCP(r.Context(), principal(r), args)
 		case "artifact.read":
 			value, err = s.readMCP(r.Context(), principal(r), args)
+		case "artifact.delete":
+			value, err = s.deleteMCP(r.Context(), principal(r), args)
 		default:
 			mcprpc.Error(w, request, 404, -32601, "Unknown tool")
 			return
@@ -91,6 +93,21 @@ func (s *Server) mcp(w http.ResponseWriter, r *http.Request) {
 	default:
 		mcprpc.Error(w, request, 404, -32601, "Method not found")
 	}
+}
+
+func (s *Server) deleteMCP(ctx context.Context, p artifact.Principal, args []byte) (any, error) {
+	var in struct {
+		Ref    artifact.ContentRef `json:"content_ref"`
+		Reason string              `json:"reason"`
+	}
+	if strictjson.Decode(bytes.NewReader(args), maxJSON, &in) != nil || !in.Ref.Valid() ||
+		!utf8.ValidString(in.Reason) || strings.TrimSpace(in.Reason) == "" || utf8.RuneCountInString(in.Reason) > 256 {
+		return nil, artifact.ErrInvalid
+	}
+	if err := s.service.Delete(ctx, p, in.Ref, in.Reason); err != nil {
+		return nil, err
+	}
+	return map[string]any{"content_ref": in.Ref, "status": "deleted"}, nil
 }
 
 func textMIME(raw string) bool {

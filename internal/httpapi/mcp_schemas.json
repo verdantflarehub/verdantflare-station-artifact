@@ -676,5 +676,52 @@
         }
       }
     }
+  },
+  {
+    "name": "artifact.delete",
+    "description": "Delete one fixed content version using the existing direct storage deletion.",
+    "inputSchema": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "title": "ArtifactDeleteToolRequest",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "content_ref",
+        "reason"
+      ],
+      "properties": {
+        "content_ref": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "title": "ContentRef",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "store_id",
+            "artifact_id",
+            "version_id"
+          ],
+          "properties": {
+            "store_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "artifact_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "version_id": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            }
+          }
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256,
+          "pattern": "\\S"
+        }
+      }
+    }
   }
 ]
